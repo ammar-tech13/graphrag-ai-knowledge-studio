@@ -1,57 +1,63 @@
+
 from pathlib import Path
 from typing import List, Dict, Any
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+
+import pymupdf
 
 
 class PDFProcessor:
     def __init__(self, min_chunk_length: int = 20):
         self.min_chunk_length = min_chunk_length
 
-        pipeline_options = PdfPipelineOptions()
-        pipeline_options.do_ocr = False
-        pipeline_options.do_table_structure = False
-
-        self.converter = DocumentConverter(
-            format_options={
-                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
-            }
-        )
-
     def extract_chunks(self, pdf_path: str) -> List[Dict[str, Any]]:
-        result = self.converter.convert(pdf_path)
-        stem = Path(pdf_path).stem
-        source = Path(pdf_path).name
+        path = Path(pdf_path)
+        source = path.name
+        stem = path.stem
         chunks = []
 
-        try:
-            paragraphs = result.document.export_to_markdown().split("\n\n")
-            method = "markdown"
-        except Exception:
-            paragraphs = [
-                elem.text for elem in result.document.iterate_items()
-                if hasattr(elem, "text")
-            ]
-            method = "iterate"
+        # Open the PDF and extract text from each page
+        with pymupdf.open(str(path)) as document:
+            chunk_index = 0
 
-        for i, para in enumerate(paragraphs):
-            text = para.strip()
-            if len(text) >= self.min_chunk_length:
-                chunks.append({
-                    "id": f"{stem}_chunk_{i}",
-                    "text": text,
-                    "source": source,
-                    "chunk_index": i,
-                    "metadata": {"length": len(text), "method": method},
-                })
+            for page_number, page in enumerate(document):
+                page_text = page.get_text("text")
+
+                # Split page text into paragraphs
+                paragraphs = page_text.split("\n\n")
+
+                for paragraph in paragraphs:
+                    text = " ".join(paragraph.split())
+
+                    if len(text) >= self.min_chunk_length:
+                        chunks.append({
+                            "id": f"{stem}_chunk_{chunk_index}",
+                            "text": text,
+                            "source": source,
+                            "chunk_index": chunk_index,
+                            "metadata": {
+                                "length": len(text),
+                                "method": "pymupdf",
+                                "page_number": page_number + 1,
+                            },
+                        })
+
+                        chunk_index += 1
 
         return chunks
 
-    def get_chunk_statistics(self, chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def get_chunk_statistics(
+        self, chunks: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+
         if not chunks:
-            return {"total_chunks": 0, "total_chars": 0, "avg_chunk_size": 0}
-        sizes = [c["metadata"]["length"] for c in chunks]
+            return {
+                "total_chunks": 0,
+                "total_chars": 0,
+                "avg_chunk_size": 0,
+            }
+
+        sizes = [chunk["metadata"]["length"] for chunk in chunks]
+
         return {
             "total_chunks": len(chunks),
             "total_chars": sum(sizes),

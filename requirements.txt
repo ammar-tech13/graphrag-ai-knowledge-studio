@@ -1,6 +1,6 @@
 
 # PDF processing
-docling>=1.0.0
+PyMuPDF==1.26.7
 
 # Neo4j graph database
 neo4j>=5.14.0
